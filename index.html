@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Savings & Draw Management App (Firebase Synced)</title>
+    <!-- html2pdf.js for PDF Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- SweetAlert2 Library for Modern Popups -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
+    <!-- Firebase SDK (v9 Compatibility Mode) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+    <style>
+        :root {
+            --gold-primary: #D4AF37;
+            --gold-light: #F4E07D;
+            --gold-dark: #AA7C11;
+            --black-bg: #121212;
+            --black-card: #1E1E1E;
+            --black-table-header: #2A2A2A;
+            --text-light: #F5F5F5;
+            --text-gold: #FFD700;
+            --text-muted: #AAAAAA;
+            --danger-red: #FF5252;
+            --success-green: #2ECC71;
+        }
+
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: var(--black-bg); color: var(--text-light); margin: 0; padding: 8px; }
+
+        /* Login Screen Overlay */
+        #loginOverlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 9999;
+        }
+        .login-box {
+            background: var(--black-card);
+            border: 1px solid var(--gold-primary);
+            padding: 25px; border-radius: 12px;
+            text-align: center; width: 90%; max-width: 320px;
+            box-shadow: 0 0 20px rgba(212, 175, 55, 0.3);
+            transition: transform 0.2s ease-in-out;
+        }
+        .login-box h2 { color: var(--text-gold); margin-top: 0; font-size: 20px; }
+        .login-box input[type="password"] {
+            width: 100%; padding: 10px; margin: 15px 0 5px 0;
+            border-radius: 6px; border: 1px solid var(--gold-primary);
+            background: #000; color: #fff; text-align: center;
+            font-size: 16px; font-weight: bold; outline: none;
+        }
+        
+        .login-error-msg {
+            color: var(--danger-red);
+            font-size: 12px;
+            font-weight: bold;
+            min-height: 18px;
+            margin-bottom: 10px;
+            display: none;
+        }
+
+        .shake {
+            animation: shakeAnim 0.4s ease-in-out;
+            border-color: var(--danger-red) !important;
+        }
+
+        @keyframes shakeAnim {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-10px); }
+            40%, 80% { transform: translateX(10px); }
+        }
+
+        .container { width: 100%; max-width: 100%; margin: 0 auto; background: var(--black-card); padding: 10px; border-radius: 10px; border: 1px solid var(--gold-dark); display: none; }
+
+        h1 { color: var(--text-gold); text-align: center; margin: 5px 0; font-size: 18px; text-transform: uppercase; }
+        p.subtitle { text-align: center; color: var(--text-muted); margin-top: 0; margin-bottom: 12px; font-size: 11px; }
+
+        .sync-status-bar { display: flex; justify-content: space-between; align-items: center; background: #000; border: 1px solid var(--gold-primary); padding: 6px 10px; border-radius: 6px; margin-bottom: 10px; font-size: 11px; font-weight: bold; }
+        .status-online { color: var(--success-green); }
+        .status-offline { color: var(--danger-red); }
+
+        .controls { display: flex; flex-direction: column; gap: 8px; background: var(--black-bg); padding: 10px; border-radius: 8px; border: 1px solid var(--gold-dark); margin-bottom: 10px; }
+        .control-group { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+        label { color: var(--gold-light); font-weight: bold; font-size: 12px; }
+        select, input[type="date"] { background: var(--black-card); color: var(--text-gold); border: 1px solid var(--gold-primary); padding: 5px; border-radius: 5px; font-weight: bold; font-size: 11px; outline: none; }
+
+        .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+        button { flex: 1; min-width: 75px; background: linear-gradient(135deg, var(--gold-primary), var(--gold-dark)); color: #000; border: none; padding: 8px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px; }
+        button.save-btn { background: linear-gradient(135deg, #2ECC71, #27AE60); color: #fff; }
+        button.pdf-btn { background: linear-gradient(135deg, #FFD700, #B8860B); }
+        button.lock-btn { background: linear-gradient(135deg, #FF5252, #C62828); color: #fff; }
+
+        .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 6px; border: 1px solid var(--gold-dark); margin-bottom: 10px; }
+        
+        table { min-width: 950px; border-collapse: collapse; font-size: 11px; white-space: nowrap; background: var(--black-card); }
+        th, td { border: 1px solid #333; padding: 4px 3px; text-align: center; }
+        th { background-color: var(--black-table-header); color: var(--text-gold); font-size: 10px; }
+        
+        tr:nth-child(even) { background-color: #181818; }
+        
+        input[type="number"], input[type="text"] { background: #000; color: #fff; border: 1px solid #444; padding: 3px; border-radius: 3px; text-align: center; font-size: 10px; }
+        input[type="number"]:focus, input[type="text"]:focus { border-color: var(--gold-primary); outline: none; }
+        
+        .inp-num { width: 38px; }
+        .inp-name { width: 90px; text-align: left !important; }
+        .inp-remark { width: 85px; text-align: left !important; color: var(--gold-light) !important; }
+
+        .due-cell { background-color: rgba(255, 82, 82, 0.2) !important; }
+        .winner-row { background-color: rgba(212, 175, 55, 0.2) !important; }
+
+        .btn-action { padding: 3px 5px; font-size: 9px; border-radius: 3px; border: none; cursor: pointer; }
+        .btn-winner { background: var(--gold-primary); color: #000; font-weight: bold; }
+        .btn-cancel { background: #444; color: #fff; }
+        .btn-delete { background: var(--danger-red); color: #fff; font-weight: bold; }
+
+        .summary-box { padding: 10px; background: #161616; border-radius: 8px; border: 1px solid var(--gold-primary); }
+        .summary-box h3 { color: var(--text-gold); margin-top: 0; font-size: 13px; border-bottom: 1px solid var(--gold-dark); padding-bottom: 4px; }
+        .summary-item { display: flex; justify-content: space-between; margin: 4px 0; font-size: 11px; }
+        .summary-val { font-weight: bold; color: var(--gold-light); }
+
+        .swal2-popup { background: var(--black-card) !important; border: 1px solid var(--gold-primary) !important; border-radius: 12px !important; color: var(--text-light) !important; }
+        .swal2-title { color: var(--text-gold) !important; font-size: 16px !important; }
+        .swal2-html-container { color: var(--text-muted) !important; font-size: 13px !important; }
+        .swal2-confirm { background: var(--gold-primary) !important; color: #000 !important; font-weight: bold !important; border-radius: 6px !important; }
+        .swal2-cancel { background: #444 !important; color: #fff !important; border-radius: 6px !important; }
+    </style>
+</head>
+<body>
+
+<!-- Security Login Screen Overlay -->
+<div id="loginOverlay">
+    <div class="login-box" id="loginBox">
+        <h2>🔒 Security Login</h2>
+        <p style="color: var(--text-muted); font-size: 12px;">Enter PIN to Access App</p>
+        <input type="password" id="pinInput" placeholder="Enter PIN" autofocus>
+        <div class="login-error-msg" id="loginError">⚠️ Incorrect PIN! Try again.</div>
+        <button onclick="checkPin()" style="width: 100%;">Login</button>
+    </div>
+</div>
+
+<div class="container" id="mainContainer">
+    <h1>Savings & Draw Register</h1>
+    <p class="subtitle">Weekly Rate: 250 TK | 10% Penalty | Hybrid Auto & Manual Save</p>
+
+    <div class="sync-status-bar">
+        <span>Network: <span id="netStatus" class="status-online">Online</span></span>
+        <span>Status: <span id="syncStatus" style="color:var(--success-green)">Cloud Live Synced</span></span>
+    </div>
+
+    <div class="controls">
+        <div class="control-group">
+            <label for="monthSelect">Select Month:</label>
+            <select id="monthSelect" onchange="loadMonthData()">
+                <option value="January">January</option>
+                <option value="February">February</option>
+                <option value="March">March</option>
+                <option value="April">April</option>
+                <option value="May">May</option>
+                <option value="June">June</option>
+                <option value="July">July</option>
+                <option value="August">August</option>
+                <option value="September">September</option>
+                <option value="October">October</option>
+                <option value="November">November</option>
+                <option value="December">December</option>
+            </select>
+        </div>
+        <div class="btn-group">
+            <button onclick="addMember()">+ Add Member</button>
+            <button class="save-btn" onclick="manualSaveData()">💾 Save Data</button>
+            <button class="pdf-btn" onclick="exportPDF()">📄 PDF Export</button>
+            <button onclick="changePin()">🔑 PIN</button>
+            <button class="lock-btn" onclick="lockApp()">🔒 Lock</button>
+        </div>
+    </div>
+
+    <div class="table-responsive" id="tableContainer">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Member Name</th>
+                    <th>Date</th>
+                    <th>Week 1</th>
+                    <th>Week 2</th>
+                    <th>Week 3</th>
+                    <th>Week 4</th>
+                    <th>Week 5</th>
+                    <th>Emerg. Fund</th>
+                    <th>Savings</th>
+                    <th>10% Penalty</th>
+                    <th>Total Deposit</th>
+                    <th>Remarks</th>
+                    <th>Draw Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+            </tbody>
+        </table>
+    </div>
+
+    <div class="summary-box" id="summaryContainer">
+        <h3>🏆 Draw & Fund Summary (<span id="currentMonthLabel">January</span>)</h3>
+        <div class="summary-item">
+            <span>Total Basic Savings:</span>
+            <span class="summary-val" id="totalSavings">0 TK</span>
+        </div>
+        <div class="summary-item">
+            <span>Total Penalty Collected (10%):</span>
+            <span class="summary-val" id="totalFine" style="color: var(--danger-red);">0 TK</span>
+        </div>
+        <div class="summary-item">
+            <span>Total Emergency Fund:</span>
+            <span class="summary-val" id="totalEF">0 TK</span>
+        </div>
+        <div class="summary-item" style="font-weight: bold; border-top: 1px solid var(--gold-dark); padding-top: 4px;">
+            <span>Grand Total Collected:</span>
+            <span class="summary-val" style="color: var(--text-gold);" id="grandTotal">0 TK</span>
+        </div>
+        <div class="summary-item">
+            <span>Total Draw Winners:</span>
+            <span class="summary-val" id="winnerCount">0 Member(s)</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- Live Firebase Configuration ---
+    const firebaseConfig = {
+        apiKey: "AIzaSyDlqbfEAxQrWQ8pjxJOlL7Q9SFumwKv6PE",
+        authDomain: "somiti-app-247ce.firebaseapp.com",
+        databaseURL: "https://somiti-app-247ce-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "somiti-app-247ce",
+        storageBucket: "somiti-app-247ce.firebasestorage.app",
+        messagingSenderId: "376220033762",
+        appId: "1:376220033762:web:74ff6a2a74e7e2771274bb",
+        measurementId: "G-20HH26Z5RQ"
+    };
+
+    let isFirebaseActive = false;
+    try {
+        firebase.initializeApp(firebaseConfig);
+        var db = firebase.database();
+        isFirebaseActive = true;
+    } catch(e) {
+        console.warn("Firebase initialization error:", e);
+    }
+
+    const WEEKLY_RATE = 250;
+    const FINE_RATE = 0.10;
+
+    let savedPin = localStorage.getItem('somiti_app_pin') || '1234';
+    let members = [];
+    let autoSaveTimer = null;
+
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+
+    function updateOnlineStatus() {
+        const netStatus = document.getElementById('netStatus');
+        if (navigator.onLine) {
+            netStatus.innerText = "Online";
+            netStatus.className = "status-online";
+            syncLocalToFirebase();
+        } else {
+            netStatus.innerText = "Offline (Local Mode)";
+            netStatus.className = "status-offline";
+            document.getElementById('syncStatus').innerText = "Saved Offline";
+            document.getElementById('syncStatus').style.color = "var(--gold-light)";
+        }
+    }
+
+    function checkPin() {
+        const pinInput = document.getElementById('pinInput');
+        const loginError = document.getElementById('loginError');
+        const loginBox = document.getElementById('loginBox');
+        
+        if (pinInput.value === savedPin) {
+            document.getElementById('loginOverlay').style.display = 'none';
+            document.getElementById('mainContainer').style.display = 'block';
+            pinInput.value = '';
+            loginError.style.display = 'none';
+            loginBox.classList.remove('shake');
+            updateOnlineStatus();
+            loadMonthData();
+        } else {
+            loginError.style.display = 'block';
+            loginBox.classList.remove('shake');
+            void loginBox.offsetWidth;
+            loginBox.classList.add('shake');
+            pinInput.value = '';
+            pinInput.focus();
+        }
+    }
+
+    function changePin() {
+        Swal.fire({
+            title: 'Verify Old PIN',
+            input: 'password',
+            inputLabel: 'Enter Current Security PIN',
+            inputPlaceholder: 'Enter Old PIN',
+            showCancelButton: true,
+            confirmButtonText: 'Verify'
+        }).then((oldResult) => {
+            if (oldResult.isConfirmed) {
+                if (oldResult.value === savedPin) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'PIN Match!',
+                        text: 'Old PIN verified successfully. Enter your new PIN now.',
+                        timer: 1500,
+                        showConfirmButton: false
+                    }).then(() => {
+                        Swal.fire({
+                            title: 'Set New PIN',
+                            input: 'password',
+                            inputLabel: 'Enter New Security PIN',
+                            inputPlaceholder: 'Enter New PIN',
+                            showCancelButton: true,
+                            confirmButtonText: 'Save New PIN'
+                        }).then((newResult) => {
+                            if (newResult.isConfirmed && newResult.value) {
+                                savedPin = newResult.value;
+                                localStorage.setItem('somiti_app_pin', savedPin);
+                                
+                                Swal.fire({
+                                    icon: 'success',
+                                    title: 'PIN Changed Success!',
+                                    text: 'Your security PIN has been updated.',
+                                    timer: 2000,
+                                    showConfirmButton: false
+                                });
+                            }
+                        });
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Wrong PIN!',
+                        text: 'Old PIN did not match. App is being locked for security.',
+                        confirmButtonText: 'OK'
+                    }).then(() => {
+                        lockApp();
+                    });
+                }
+            }
+        });
+    }
+
+    function lockApp() {
+        document.getElementById('mainContainer').style.display = 'none';
+        document.getElementById('loginOverlay').style.display = 'flex';
+        document.getElementById('loginError').style.display = 'none';
+    }
+
+    document.getElementById('pinInput').addEventListener('keyup', function(e) { 
+        if (e.key === 'Enter') checkPin(); 
+    });
+
+    function loadMonthData() {
+        const month = document.getElementById('monthSelect').value;
+        document.getElementById('currentMonthLabel').innerText = month;
+        document.getElementById('syncStatus').innerText = "Loading Data...";
+
+        if (navigator.onLine && isFirebaseActive) {
+            db.ref('somiti_data/' + month).once('value').then((snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    members = data;
+                } else {
+                    loadLocalOrDefault(month);
+                }
+                saveToLocalStorage(month);
+                renderTable();
+                updateSyncUI(true);
+            }).catch(() => {
+                loadLocalOrDefault(month);
+                renderTable();
+            });
+        } else {
+            loadLocalOrDefault(month);
+            renderTable();
+        }
+    }
+
+    function loadLocalOrDefault(month) {
+        let localData = localStorage.getItem('somiti_month_' + month);
+        if (localData) {
+            members = JSON.parse(localData);
+        } else {
+            members = [
+                { id: "0001", name: "Md. Rafiqul Islam", date: "2026-01-05", w1: 250, w2: 250, w3: 250, w4: 250, w5: 0, ef: 50, isWinner: false, remark: "Regular" },
+                { id: "0002", name: "Abdul Jalil", date: "2026-01-05", w1: 250, w2: 250, w3: 0, w4: 250, w5: 0, ef: 50, isWinner: false, remark: "W3 Due (EF)" }
+            ];
+        }
+    }
+
+    function saveToLocalStorage(month) {
+        localStorage.setItem('somiti_month_' + (month || document.getElementById('monthSelect').value), JSON.stringify(members));
+    }
+
+    function syncLocalToFirebase() {
+        if (!navigator.onLine || !isFirebaseActive) return;
+        const month = document.getElementById('monthSelect').value;
+        db.ref('somiti_data/' + month).set(members).then(() => {
+            updateSyncUI(true);
+        });
+    }
+
+    function updateSyncUI(isSynced) {
+        const syncStatus = document.getElementById('syncStatus');
+        if (isSynced && navigator.onLine) {
+            syncStatus.innerText = "Cloud Live Synced";
+            syncStatus.style.color = "var(--success-green)";
+        } else {
+            syncStatus.innerText = "Saved Offline";
+            syncStatus.style.color = "var(--gold-light)";
+        }
+    }
+
+    function manualSaveData() {
+        const month = document.getElementById('monthSelect').value;
+        saveToLocalStorage(month);
+        
+        if (navigator.onLine && isFirebaseActive) {
+            syncLocalToFirebase();
+        }
+
+        Swal.fire({
+            toast: true,
+            position: 'top-end',
+            icon: 'success',
+            title: 'Data Saved Successfully!',
+            showConfirmButton: false,
+            timer: 2000,
+            background: '#1E1E1E',
+            color: '#FFD700'
+        });
+    }
+
+    function renderTable() {
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = '';
+
+        members.forEach((m, index) => {
+            let weeks = [m.w1||0, m.w2||0, m.w3||0, m.w4||0, m.w5||0];
+            let savingsSum = weeks.reduce((a, b) => a + b, 0);
+            
+            let dueWeeksCount = 0;
+            for(let i = 0; i < 4; i++) {
+                if(weeks[i] === 0) dueWeeksCount++;
+            }
+            
+            let fineTotal = dueWeeksCount * (WEEKLY_RATE * FINE_RATE);
+            let totalWithFine = savingsSum + (m.ef||0) + fineTotal;
+
+            let tr = document.createElement('tr');
+            if(m.isWinner) tr.classList.add('winner-row');
+
+            tr.innerHTML = `
+                <td>${m.id}</td>
+                <td><input type="text" class="inp-name" value="${m.name}" oninput="updateData(${index}, 'name', this.value)"></td>
+                <td><input type="date" value="${m.date || ''}" onchange="updateData(${index}, 'date', this.value)"></td>
+                
+                <td class="${m.w1 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w1}" oninput="updateData(${index}, 'w1', parseInt(this.value)||0)"></td>
+                <td class="${m.w2 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w2}" oninput="updateData(${index}, 'w2', parseInt(this.value)||0)"></td>
+                <td class="${m.w3 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w3}" oninput="updateData(${index}, 'w3', parseInt(this.value)||0)"></td>
+                <td class="${m.w4 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w4}" oninput="updateData(${index}, 'w4', parseInt(this.value)||0)"></td>
+                <td class="${m.w5 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w5}" oninput="updateData(${index}, 'w5', parseInt(this.value)||0)"></td>
+                
+                <td><input type="number" class="inp-num" value="${m.ef}" oninput="updateData(${index}, 'ef', parseInt(this.value)||0)"></td>
+                
+                <td style="font-weight:bold;" id="sav_${index}">${savingsSum}</td>
+                <td style="color: var(--danger-red); font-weight:bold;" id="fine_${index}">${fineTotal > 0 ? fineTotal + ' TK' : '0'}</td>
+                <td style="color: var(--text-gold); font-weight:bold;" id="tot_${index}">${totalWithFine}</td>
+                
+                <td><input type="text" class="inp-remark" value="${m.remark || ''}" placeholder="Remarks..." oninput="updateData(${index}, 'remark', this.value)"></td>
+                <td>${m.isWinner ? '🏆 Winner' : 'Eligible'}</td>
+                <td style="display:flex; gap:3px; justify-content:center;">
+                    <button class="btn-action ${m.isWinner ? 'btn-cancel' : 'btn-winner'}" onclick="toggleWinner(${index})">${m.isWinner ? 'Cancel' : 'Winner'}</button>
+                    <button class="btn-action btn-delete" onclick="deleteMember(${index})" title="Remove Member">❌</button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        calculateOverallTotals();
+    }
+
+    function calculateOverallTotals() {
+        let gSavings = 0, gFine = 0, gEF = 0, winners = 0;
+        members.forEach((m) => {
+            let weeks = [m.w1||0, m.w2||0, m.w3||0, m.w4||0, m.w5||0];
+            let savingsSum = weeks.reduce((a, b) => a + b, 0);
+            let dueWeeksCount = 0;
+            for(let i = 0; i < 4; i++) { if(weeks[i] === 0) dueWeeksCount++; }
+            let fineTotal = dueWeeksCount * (WEEKLY_RATE * FINE_RATE);
+
+            gSavings += savingsSum;
+            gFine += fineTotal;
+            gEF += (m.ef||0);
+            if(m.isWinner) winners++;
+        });
+
+        document.getElementById('totalSavings').innerText = gSavings + ' TK';
+        document.getElementById('totalFine').innerText = gFine + ' TK';
+        document.getElementById('totalEF').innerText = gEF + ' TK';
+        document.getElementById('grandTotal').innerText = (gSavings + gFine + gEF) + ' TK';
+        document.getElementById('winnerCount').innerText = winners + ' Member(s)';
+    }
+
+    function updateData(index, field, value) {
+        members[index][field] = value;
+        
+        let weeks = [members[index].w1||0, members[index].w2||0, members[index].w3||0, members[index].w4||0, members[index].w5||0];
+        let savingsSum = weeks.reduce((a, b) => a + b, 0);
+        let dueWeeksCount = 0;
+        for(let i = 0; i < 4; i++) { if(weeks[i] === 0) dueWeeksCount++; }
+        let fineTotal = dueWeeksCount * (WEEKLY_RATE * FINE_RATE);
+        let totalWithFine = savingsSum + (members[index].ef||0) + fineTotal;
+
+        if(document.getElementById(`sav_${index}`)) {
+            document.getElementById(`sav_${index}`).innerText = savingsSum;
+            document.getElementById(`fine_${index}`).innerText = fineTotal > 0 ? fineTotal + ' TK' : '0';
+            document.getElementById(`tot_${index}`).innerText = totalWithFine;
+        }
+
+        calculateOverallTotals();
+        saveToLocalStorage();
+
+        clearTimeout(autoSaveTimer);
+        autoSaveTimer = setTimeout(() => {
+            if (navigator.onLine && isFirebaseActive) {
+                syncLocalToFirebase();
+            } else {
+                updateSyncUI(false);
+            }
+        }, 800);
+    }
+
+    function toggleWinner(index) {
+        members[index].isWinner = !members[index].isWinner;
+        saveToLocalStorage();
+        if (navigator.onLine && isFirebaseActive) syncLocalToFirebase();
+        renderTable();
+    }
+
+    function addMember() {
+        let newId = String(members.length + 1).padStart(4, '0');
+        let today = new Date().toISOString().split('T')[0];
+        members.push({ id: newId, name: "New Member", date: today, w1: 250, w2: 250, w3: 250, w4: 250, w5: 0, ef: 50, isWinner: false, remark: "" });
+        saveToLocalStorage();
+        if (navigator.onLine && isFirebaseActive) syncLocalToFirebase();
+        renderTable();
+    }
+
+    function deleteMember(index) {
+        Swal.fire({
+            title: 'Remove Member?',
+            text: `Are you sure you want to remove "${members[index].name}"?`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Yes, Delete',
+            cancelButtonText: 'Cancel'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                members.splice(index, 1);
+                members.forEach((m, i) => { m.id = String(i + 1).padStart(4, '0'); });
+                saveToLocalStorage();
+                if (navigator.onLine && isFirebaseActive) syncLocalToFirebase();
+                renderTable();
+            }
+        });
+    }
+
+    function exportPDF() {
+        const month = document.getElementById('monthSelect').value;
+        
+        Swal.fire({
+            title: 'Generating PDF...',
+            text: 'Please wait a moment',
+            allowOutsideClick: false,
+            didOpen: () => { Swal.showLoading(); }
+        });
+
+        const pdfWrapper = document.createElement('div');
+        pdfWrapper.style.padding = '15px';
+        pdfWrapper.style.background = '#1E1E1E';
+        pdfWrapper.style.color = '#F5F5F5';
+
+        const titleHeader = `
+            <div style="text-align:center; margin-bottom: 15px;">
+                <h2 style="color: #FFD700; margin:0; text-transform: uppercase;">Savings & Draw Register</h2>
+                <p style="color: #AAAAAA; margin: 5px 0 0 0; font-size: 12px;">Month: ${month} | Weekly Rate: 250 TK | Emergency Fund: 50 TK</p>
+            </div>
+        `;
+
+        const tableHTML = document.getElementById('tableContainer').innerHTML;
+        const summaryHTML = document.getElementById('summaryContainer').innerHTML;
+
+        pdfWrapper.innerHTML = titleHeader + tableHTML + `<div style="margin-top:20px;">${summaryHTML}</div>`;
+
+        pdfWrapper.querySelectorAll('.btn-action').forEach(b => b.style.display = 'none');
+        pdfWrapper.querySelectorAll('th:last-child, td:last-child').forEach(c => c.style.display = 'none');
+
+        const opt = {
+            margin:       [0.3, 0.3, 0.3, 0.3],
+            filename:     `Somiti_Register_${month}.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2, useCORS: true, backgroundColor: '#1E1E1E' },
+            jsPDF:        { unit: 'in', format: 'a4', orientation: 'landscape' }
+        };
+
+        html2pdf().set(opt).from(pdfWrapper).save().then(() => {
+            Swal.close();
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'success',
+                title: 'PDF Downloaded Successfully!',
+                showConfirmButton: false,
+                timer: 2000,
+                background: '#1E1E1E',
+                color: '#FFD700'
+            });
+        }).catch((err) => {
+            Swal.close();
+            alert("PDF export error: " + err);
+        });
+    }
+</script>
+
+</body>
+</html>
