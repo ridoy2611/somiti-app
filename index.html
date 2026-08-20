@@ -31,7 +31,6 @@
         * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         body { background-color: var(--black-bg); color: var(--text-light); margin: 0; padding: 8px; }
 
-        /* Login Screen Overlay */
         #loginOverlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -133,7 +132,6 @@
 </head>
 <body>
 
-<!-- Security Login Screen Overlay -->
 <div id="loginOverlay">
     <div class="login-box" id="loginBox">
         <h2>🔒 Security Login</h2>
@@ -146,7 +144,7 @@
 
 <div class="container" id="mainContainer">
     <h1>Savings & Draw Register</h1>
-    <p class="subtitle">Weekly Rate: 250 TK | 10% Penalty | Hybrid Auto & Manual Save</p>
+    <p class="subtitle">Weekly Rate: 250 TK | 10% Penalty | Realtime Live Synced</p>
 
     <div class="sync-status-bar">
         <span>Network: <span id="netStatus" class="status-online">Online</span></span>
@@ -232,7 +230,6 @@
 </div>
 
 <script>
-    // --- Live Firebase Configuration ---
     const firebaseConfig = {
         apiKey: "AIzaSyDlqbfEAxQrWQ8pjxJOlL7Q9SFumwKv6PE",
         authDomain: "somiti-app-247ce.firebaseapp.com",
@@ -244,38 +241,15 @@
         measurementId: "G-20HH26Z5RQ"
     };
 
-    let isFirebaseActive = false;
-    try {
-        firebase.initializeApp(firebaseConfig);
-        var db = firebase.database();
-        isFirebaseActive = true;
-    } catch(e) {
-        console.warn("Firebase initialization error:", e);
-    }
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
 
     const WEEKLY_RATE = 250;
     const FINE_RATE = 0.10;
 
     let savedPin = localStorage.getItem('somiti_app_pin') || '1234';
     let members = [];
-    let autoSaveTimer = null;
-
-    window.addEventListener('online', updateOnlineStatus);
-    window.addEventListener('offline', updateOnlineStatus);
-
-    function updateOnlineStatus() {
-        const netStatus = document.getElementById('netStatus');
-        if (navigator.onLine) {
-            netStatus.innerText = "Online";
-            netStatus.className = "status-online";
-            syncLocalToFirebase();
-        } else {
-            netStatus.innerText = "Offline (Local Mode)";
-            netStatus.className = "status-offline";
-            document.getElementById('syncStatus').innerText = "Saved Offline";
-            document.getElementById('syncStatus').style.color = "var(--gold-light)";
-        }
-    }
+    let currentFirebaseRef = null;
 
     function checkPin() {
         const pinInput = document.getElementById('pinInput');
@@ -288,7 +262,6 @@
             pinInput.value = '';
             loginError.style.display = 'none';
             loginBox.classList.remove('shake');
-            updateOnlineStatus();
             loadMonthData();
         } else {
             loginError.style.display = 'block';
@@ -305,7 +278,6 @@
             title: 'Verify Old PIN',
             input: 'password',
             inputLabel: 'Enter Current Security PIN',
-            inputPlaceholder: 'Enter Old PIN',
             showCancelButton: true,
             confirmButtonText: 'Verify'
         }).then((oldResult) => {
@@ -314,7 +286,6 @@
                     Swal.fire({
                         icon: 'success',
                         title: 'PIN Match!',
-                        text: 'Old PIN verified successfully. Enter your new PIN now.',
                         timer: 1500,
                         showConfirmButton: false
                     }).then(() => {
@@ -322,33 +293,18 @@
                             title: 'Set New PIN',
                             input: 'password',
                             inputLabel: 'Enter New Security PIN',
-                            inputPlaceholder: 'Enter New PIN',
                             showCancelButton: true,
                             confirmButtonText: 'Save New PIN'
                         }).then((newResult) => {
                             if (newResult.isConfirmed && newResult.value) {
                                 savedPin = newResult.value;
                                 localStorage.setItem('somiti_app_pin', savedPin);
-                                
-                                Swal.fire({
-                                    icon: 'success',
-                                    title: 'PIN Changed Success!',
-                                    text: 'Your security PIN has been updated.',
-                                    timer: 2000,
-                                    showConfirmButton: false
-                                });
+                                Swal.fire({ icon: 'success', title: 'PIN Changed Success!', timer: 2000, showConfirmButton: false });
                             }
                         });
                     });
                 } else {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Wrong PIN!',
-                        text: 'Old PIN did not match. App is being locked for security.',
-                        confirmButtonText: 'OK'
-                    }).then(() => {
-                        lockApp();
-                    });
+                    Swal.fire({ icon: 'error', title: 'Wrong PIN!', text: 'App is being locked.' }).then(() => { lockApp(); });
                 }
             }
         });
@@ -360,84 +316,55 @@
         document.getElementById('loginError').style.display = 'none';
     }
 
-    document.getElementById('pinInput').addEventListener('keyup', function(e) { 
-        if (e.key === 'Enter') checkPin(); 
-    });
+    document.getElementById('pinInput').addEventListener('keyup', function(e) { if (e.key === 'Enter') checkPin(); });
 
+    // 🔄 Realtime Firebase Data Sync System
     function loadMonthData() {
         const month = document.getElementById('monthSelect').value;
         document.getElementById('currentMonthLabel').innerText = month;
-        document.getElementById('syncStatus').innerText = "Loading Data...";
+        document.getElementById('syncStatus').innerText = "Connecting Cloud...";
+        document.getElementById('syncStatus').style.color = "var(--gold-light)";
 
-        if (navigator.onLine && isFirebaseActive) {
-            db.ref('somiti_data/' + month).once('value').then((snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    members = data;
-                } else {
-                    loadLocalOrDefault(month);
-                }
-                saveToLocalStorage(month);
-                renderTable();
-                updateSyncUI(true);
-            }).catch(() => {
-                loadLocalOrDefault(month);
-                renderTable();
-            });
-        } else {
-            loadLocalOrDefault(month);
+        if (currentFirebaseRef) {
+            currentFirebaseRef.off(); // পুরোনো লিসেনার রিমুভ করা
+        }
+
+        currentFirebaseRef = db.ref('somiti_data/' + month);
+        
+        // অন-ভ্যালু লিসেনার দিয়ে রিয়েলটাইম সিঙ্ক
+        currentFirebaseRef.on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data && Array.isArray(data)) {
+                members = data;
+            } else {
+                members = [
+                    { id: "0001", name: "Md. Rafiqul Islam", date: "2026-01-05", w1: 250, w2: 250, w3: 250, w4: 250, w5: 0, ef: 50, isWinner: false, remark: "Regular" },
+                    { id: "0002", name: "Abdul Jalil", date: "2026-01-05", w1: 250, w2: 250, w3: 0, w4: 250, w5: 0, ef: 50, isWinner: false, remark: "W3 Due (EF)" }
+                ];
+                db.ref('somiti_data/' + month).set(members);
+            }
             renderTable();
-        }
-    }
-
-    function loadLocalOrDefault(month) {
-        let localData = localStorage.getItem('somiti_month_' + month);
-        if (localData) {
-            members = JSON.parse(localData);
-        } else {
-            members = [
-                { id: "0001", name: "Md. Rafiqul Islam", date: "2026-01-05", w1: 250, w2: 250, w3: 250, w4: 250, w5: 0, ef: 50, isWinner: false, remark: "Regular" },
-                { id: "0002", name: "Abdul Jalil", date: "2026-01-05", w1: 250, w2: 250, w3: 0, w4: 250, w5: 0, ef: 50, isWinner: false, remark: "W3 Due (EF)" }
-            ];
-        }
-    }
-
-    function saveToLocalStorage(month) {
-        localStorage.setItem('somiti_month_' + (month || document.getElementById('monthSelect').value), JSON.stringify(members));
-    }
-
-    function syncLocalToFirebase() {
-        if (!navigator.onLine || !isFirebaseActive) return;
-        const month = document.getElementById('monthSelect').value;
-        db.ref('somiti_data/' + month).set(members).then(() => {
-            updateSyncUI(true);
+            document.getElementById('syncStatus').innerText = "Cloud Live Synced";
+            document.getElementById('syncStatus').style.color = "var(--success-green)";
+        }, (error) => {
+            console.error("Firebase Error: ", error);
+            document.getElementById('syncStatus').innerText = "Connection Failed";
+            document.getElementById('syncStatus').style.color = "var(--danger-red)";
         });
     }
 
-    function updateSyncUI(isSynced) {
-        const syncStatus = document.getElementById('syncStatus');
-        if (isSynced && navigator.onLine) {
-            syncStatus.innerText = "Cloud Live Synced";
-            syncStatus.style.color = "var(--success-green)";
-        } else {
-            syncStatus.innerText = "Saved Offline";
-            syncStatus.style.color = "var(--gold-light)";
-        }
+    function saveToCloud() {
+        const month = document.getElementById('monthSelect').value;
+        db.ref('somiti_data/' + month).set(members);
     }
 
     function manualSaveData() {
-        const month = document.getElementById('monthSelect').value;
-        saveToLocalStorage(month);
-        
-        if (navigator.onLine && isFirebaseActive) {
-            syncLocalToFirebase();
-        }
-
+        saveToCloud();
         Swal.fire({
             toast: true,
             position: 'top-end',
             icon: 'success',
-            title: 'Data Saved Successfully!',
+            title: 'Data Saved to Cloud!',
             showConfirmButton: false,
             timer: 2000,
             background: '#1E1E1E',
@@ -466,22 +393,22 @@
 
             tr.innerHTML = `
                 <td>${m.id}</td>
-                <td><input type="text" class="inp-name" value="${m.name}" oninput="updateData(${index}, 'name', this.value)"></td>
+                <td><input type="text" class="inp-name" value="${m.name}" onchange="updateData(${index}, 'name', this.value)"></td>
                 <td><input type="date" value="${m.date || ''}" onchange="updateData(${index}, 'date', this.value)"></td>
                 
-                <td class="${m.w1 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w1}" oninput="updateData(${index}, 'w1', parseInt(this.value)||0)"></td>
-                <td class="${m.w2 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w2}" oninput="updateData(${index}, 'w2', parseInt(this.value)||0)"></td>
-                <td class="${m.w3 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w3}" oninput="updateData(${index}, 'w3', parseInt(this.value)||0)"></td>
-                <td class="${m.w4 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w4}" oninput="updateData(${index}, 'w4', parseInt(this.value)||0)"></td>
-                <td class="${m.w5 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w5}" oninput="updateData(${index}, 'w5', parseInt(this.value)||0)"></td>
+                <td class="${m.w1 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w1}" onchange="updateData(${index}, 'w1', parseInt(this.value)||0)"></td>
+                <td class="${m.w2 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w2}" onchange="updateData(${index}, 'w2', parseInt(this.value)||0)"></td>
+                <td class="${m.w3 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w3}" onchange="updateData(${index}, 'w3', parseInt(this.value)||0)"></td>
+                <td class="${m.w4 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w4}" onchange="updateData(${index}, 'w4', parseInt(this.value)||0)"></td>
+                <td class="${m.w5 === 0 ? 'due-cell' : ''}"><input type="number" class="inp-num" value="${m.w5}" onchange="updateData(${index}, 'w5', parseInt(this.value)||0)"></td>
                 
-                <td><input type="number" class="inp-num" value="${m.ef}" oninput="updateData(${index}, 'ef', parseInt(this.value)||0)"></td>
+                <td><input type="number" class="inp-num" value="${m.ef}" onchange="updateData(${index}, 'ef', parseInt(this.value)||0)"></td>
                 
-                <td style="font-weight:bold;" id="sav_${index}">${savingsSum}</td>
-                <td style="color: var(--danger-red); font-weight:bold;" id="fine_${index}">${fineTotal > 0 ? fineTotal + ' TK' : '0'}</td>
-                <td style="color: var(--text-gold); font-weight:bold;" id="tot_${index}">${totalWithFine}</td>
+                <td style="font-weight:bold;">${savingsSum}</td>
+                <td style="color: var(--danger-red); font-weight:bold;">${fineTotal > 0 ? fineTotal + ' TK' : '0'}</td>
+                <td style="color: var(--text-gold); font-weight:bold;">${totalWithFine}</td>
                 
-                <td><input type="text" class="inp-remark" value="${m.remark || ''}" placeholder="Remarks..." oninput="updateData(${index}, 'remark', this.value)"></td>
+                <td><input type="text" class="inp-remark" value="${m.remark || ''}" placeholder="Remarks..." onchange="updateData(${index}, 'remark', this.value)"></td>
                 <td>${m.isWinner ? '🏆 Winner' : 'Eligible'}</td>
                 <td style="display:flex; gap:3px; justify-content:center;">
                     <button class="btn-action ${m.isWinner ? 'btn-cancel' : 'btn-winner'}" onclick="toggleWinner(${index})">${m.isWinner ? 'Cancel' : 'Winner'}</button>
@@ -518,47 +445,19 @@
 
     function updateData(index, field, value) {
         members[index][field] = value;
-        
-        let weeks = [members[index].w1||0, members[index].w2||0, members[index].w3||0, members[index].w4||0, members[index].w5||0];
-        let savingsSum = weeks.reduce((a, b) => a + b, 0);
-        let dueWeeksCount = 0;
-        for(let i = 0; i < 4; i++) { if(weeks[i] === 0) dueWeeksCount++; }
-        let fineTotal = dueWeeksCount * (WEEKLY_RATE * FINE_RATE);
-        let totalWithFine = savingsSum + (members[index].ef||0) + fineTotal;
-
-        if(document.getElementById(`sav_${index}`)) {
-            document.getElementById(`sav_${index}`).innerText = savingsSum;
-            document.getElementById(`fine_${index}`).innerText = fineTotal > 0 ? fineTotal + ' TK' : '0';
-            document.getElementById(`tot_${index}`).innerText = totalWithFine;
-        }
-
-        calculateOverallTotals();
-        saveToLocalStorage();
-
-        clearTimeout(autoSaveTimer);
-        autoSaveTimer = setTimeout(() => {
-            if (navigator.onLine && isFirebaseActive) {
-                syncLocalToFirebase();
-            } else {
-                updateSyncUI(false);
-            }
-        }, 800);
+        saveToCloud();
     }
 
     function toggleWinner(index) {
         members[index].isWinner = !members[index].isWinner;
-        saveToLocalStorage();
-        if (navigator.onLine && isFirebaseActive) syncLocalToFirebase();
-        renderTable();
+        saveToCloud();
     }
 
     function addMember() {
         let newId = String(members.length + 1).padStart(4, '0');
         let today = new Date().toISOString().split('T')[0];
         members.push({ id: newId, name: "New Member", date: today, w1: 250, w2: 250, w3: 250, w4: 250, w5: 0, ef: 50, isWinner: false, remark: "" });
-        saveToLocalStorage();
-        if (navigator.onLine && isFirebaseActive) syncLocalToFirebase();
-        renderTable();
+        saveToCloud();
     }
 
     function deleteMember(index) {
@@ -573,19 +472,15 @@
             if (result.isConfirmed) {
                 members.splice(index, 1);
                 members.forEach((m, i) => { m.id = String(i + 1).padStart(4, '0'); });
-                saveToLocalStorage();
-                if (navigator.onLine && isFirebaseActive) syncLocalToFirebase();
-                renderTable();
+                saveToCloud();
             }
         });
     }
 
     function exportPDF() {
         const month = document.getElementById('monthSelect').value;
-        
         Swal.fire({
             title: 'Generating PDF...',
-            text: 'Please wait a moment',
             allowOutsideClick: false,
             didOpen: () => { Swal.showLoading(); }
         });
@@ -606,7 +501,6 @@
         const summaryHTML = document.getElementById('summaryContainer').innerHTML;
 
         pdfWrapper.innerHTML = titleHeader + tableHTML + `<div style="margin-top:20px;">${summaryHTML}</div>`;
-
         pdfWrapper.querySelectorAll('.btn-action').forEach(b => b.style.display = 'none');
         pdfWrapper.querySelectorAll('th:last-child, td:last-child').forEach(c => c.style.display = 'none');
 
@@ -620,19 +514,7 @@
 
         html2pdf().set(opt).from(pdfWrapper).save().then(() => {
             Swal.close();
-            Swal.fire({
-                toast: true,
-                position: 'top-end',
-                icon: 'success',
-                title: 'PDF Downloaded Successfully!',
-                showConfirmButton: false,
-                timer: 2000,
-                background: '#1E1E1E',
-                color: '#FFD700'
-            });
-        }).catch((err) => {
-            Swal.close();
-            alert("PDF export error: " + err);
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'PDF Downloaded!', showConfirmButton: false, timer: 2000, background: '#1E1E1E', color: '#FFD700' });
         });
     }
 </script>
