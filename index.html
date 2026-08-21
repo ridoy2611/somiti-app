@@ -84,13 +84,15 @@
         .status-offline { color: var(--danger-red); }
 
         .controls { display: flex; flex-direction: column; gap: 8px; background: var(--black-bg); padding: 10px; border-radius: 8px; border: 1px solid var(--gold-dark); margin-bottom: 10px; }
-        .control-group { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .control-group { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 
         label { color: var(--gold-light); font-weight: bold; font-size: 12px; }
-        select, input[type="date"] { background: var(--black-card); color: var(--text-gold); border: 1px solid var(--gold-primary); padding: 5px; border-radius: 5px; font-weight: bold; font-size: 11px; outline: none; }
+        select, input[type="date"], input[type="text"].search-box { background: var(--black-card); color: var(--text-gold); border: 1px solid var(--gold-primary); padding: 5px; border-radius: 5px; font-weight: bold; font-size: 11px; outline: none; }
+        input[type="text"].search-box { width: 140px; text-align: left; }
 
         .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
         button { flex: 1; min-width: 75px; background: linear-gradient(135deg, var(--gold-primary), var(--gold-dark)); color: #000; border: none; padding: 8px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px; }
+        button.draw-btn { background: linear-gradient(135deg, #9B59B6, #8E44AD); color: #fff; }
         button.save-btn { background: linear-gradient(135deg, #2ECC71, #27AE60); color: #fff; }
         button.pdf-btn { background: linear-gradient(135deg, #FFD700, #B8860B); }
         button.lock-btn { background: linear-gradient(135deg, #FF5252, #C62828); color: #fff; }
@@ -112,6 +114,10 @@
 
         .due-cell { background-color: rgba(255, 82, 82, 0.2) !important; }
         .winner-row { background-color: rgba(212, 175, 55, 0.2) !important; }
+
+        .status-eligible { color: var(--success-green); font-weight: bold; }
+        .status-ineligible { color: var(--danger-red); font-weight: bold; }
+        .status-winner { color: var(--text-gold); font-weight: bold; }
 
         .btn-action { padding: 3px 5px; font-size: 9px; border-radius: 3px; border: none; cursor: pointer; }
         .btn-winner { background: var(--gold-primary); color: #000; font-weight: bold; }
@@ -153,24 +159,31 @@
 
     <div class="controls">
         <div class="control-group">
-            <label for="monthSelect">Select Month:</label>
-            <select id="monthSelect" onchange="loadMonthData()">
-                <option value="January">January</option>
-                <option value="February">February</option>
-                <option value="March">March</option>
-                <option value="April">April</option>
-                <option value="May">May</option>
-                <option value="June">June</option>
-                <option value="July">July</option>
-                <option value="August">August</option>
-                <option value="September">September</option>
-                <option value="October">October</option>
-                <option value="November">November</option>
-                <option value="December">December</option>
-            </select>
+            <div>
+                <label for="monthSelect">Select Month:</label>
+                <select id="monthSelect" onchange="loadMonthData()">
+                    <option value="January">January</option>
+                    <option value="February">February</option>
+                    <option value="March">March</option>
+                    <option value="April">April</option>
+                    <option value="May">May</option>
+                    <option value="June">June</option>
+                    <option value="July">July</option>
+                    <option value="August">August</option>
+                    <option value="September">September</option>
+                    <option value="October">October</option>
+                    <option value="November">November</option>
+                    <option value="December">December</option>
+                </select>
+            </div>
+            <div>
+                <label for="searchInput">Search:</label>
+                <input type="text" id="searchInput" class="search-box" placeholder="Name or ID..." onkeyup="renderTable()">
+            </div>
         </div>
         <div class="btn-group">
             <button onclick="addMember()">+ Add Member</button>
+            <button class="draw-btn" onclick="runAutoDraw()">🎲 Run Draw</button>
             <button class="save-btn" onclick="manualSaveData()">💾 Save Data</button>
             <button class="pdf-btn" onclick="exportPDF()">📄 PDF Export</button>
             <button onclick="changePin()">🔑 PIN</button>
@@ -326,12 +339,11 @@
         document.getElementById('syncStatus').style.color = "var(--gold-light)";
 
         if (currentFirebaseRef) {
-            currentFirebaseRef.off(); // পুরোনো লিসেনার রিমুভ করা
+            currentFirebaseRef.off();
         }
 
         currentFirebaseRef = db.ref('somiti_data/' + month);
         
-        // অন-ভ্যালু লিসেনার দিয়ে রিয়েলটাইম সিঙ্ক
         currentFirebaseRef.on('value', (snapshot) => {
             const data = snapshot.val();
             if (data && Array.isArray(data)) {
@@ -374,9 +386,14 @@
 
     function renderTable() {
         const tbody = document.getElementById('tableBody');
+        const filterText = document.getElementById('searchInput').value.toLowerCase();
         tbody.innerHTML = '';
 
         members.forEach((m, index) => {
+            if (filterText && !m.name.toLowerCase().includes(filterText) && !m.id.toLowerCase().includes(filterText)) {
+                return;
+            }
+
             let weeks = [m.w1||0, m.w2||0, m.w3||0, m.w4||0, m.w5||0];
             let savingsSum = weeks.reduce((a, b) => a + b, 0);
             
@@ -387,6 +404,16 @@
             
             let fineTotal = dueWeeksCount * (WEEKLY_RATE * FINE_RATE);
             let totalWithFine = savingsSum + (m.ef||0) + fineTotal;
+
+            // 🎯 Automated Draw Eligibility Rules
+            let drawStatusHTML = '';
+            if (m.isWinner) {
+                drawStatusHTML = '<span class="status-winner">🏆 Winner</span>';
+            } else if (dueWeeksCount > 0) {
+                drawStatusHTML = '<span class="status-ineligible">Not Eligible</span>';
+            } else {
+                drawStatusHTML = '<span class="status-eligible">Eligible</span>';
+            }
 
             let tr = document.createElement('tr');
             if(m.isWinner) tr.classList.add('winner-row');
@@ -409,7 +436,7 @@
                 <td style="color: var(--text-gold); font-weight:bold;">${totalWithFine}</td>
                 
                 <td><input type="text" class="inp-remark" value="${m.remark || ''}" placeholder="Remarks..." onchange="updateData(${index}, 'remark', this.value)"></td>
-                <td>${m.isWinner ? '🏆 Winner' : 'Eligible'}</td>
+                <td>${drawStatusHTML}</td>
                 <td style="display:flex; gap:3px; justify-content:center;">
                     <button class="btn-action ${m.isWinner ? 'btn-cancel' : 'btn-winner'}" onclick="toggleWinner(${index})">${m.isWinner ? 'Cancel' : 'Winner'}</button>
                     <button class="btn-action btn-delete" onclick="deleteMember(${index})" title="Remove Member">❌</button>
@@ -419,6 +446,48 @@
         });
 
         calculateOverallTotals();
+    }
+
+    // 🎲 Automated Draw Function
+    function runAutoDraw() {
+        let eligibleMembers = members.filter(m => {
+            let weeks = [m.w1||0, m.w2||0, m.w3||0, m.w4||0];
+            let hasDue = weeks.some(w => w === 0);
+            return !m.isWinner && !hasDue;
+        });
+
+        if (eligibleMembers.length === 0) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'No Eligible Members!',
+                text: 'All members have dues or are already winners.'
+            });
+            return;
+        }
+
+        Swal.fire({
+            title: 'Selecting Winner...',
+            html: 'Drawing lottery randomly...',
+            timer: 2000,
+            timerProgressBar: true,
+            didOpen: () => { Swal.showLoading(); }
+        }).then(() => {
+            let randomIndex = Math.floor(Math.random() * eligibleMembers.length);
+            let selectedWinner = eligibleMembers[randomIndex];
+
+            let originalIndex = members.findIndex(m => m.id === selectedWinner.id);
+            if (originalIndex !== -1) {
+                members[originalIndex].isWinner = true;
+                saveToCloud();
+
+                Swal.fire({
+                    icon: 'success',
+                    title: '🎉 Winner Declared!',
+                    html: `<b style="color: #FFD700; font-size: 18px;">${selectedWinner.name}</b> (ID: ${selectedWinner.id}) has won the draw!`,
+                    confirmButtonText: 'Awesome!'
+                });
+            }
+        });
     }
 
     function calculateOverallTotals() {
