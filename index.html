@@ -4,6 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Savings & Draw Management App (Firebase Synced)</title>
+    
+    <!-- PWA Config Tags -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#D4AF37">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2953/2953361.png">
+
     <!-- html2pdf.js for PDF Export -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- SweetAlert2 Library for Modern Popups -->
@@ -52,6 +60,7 @@
             border-radius: 6px; border: 1px solid var(--gold-primary);
             background: #000; color: #fff; text-align: center;
             font-size: 16px; font-weight: bold; outline: none;
+            -webkit-text-security: disc; /* Ensures dots for password on numeric inputs */
         }
         
         .login-error-msg {
@@ -142,7 +151,10 @@
     <div class="login-box" id="loginBox">
         <h2>🔒 Security Login</h2>
         <p style="color: var(--text-muted); font-size: 12px;">Enter PIN to Access App</p>
-        <input type="password" id="pinInput" placeholder="Enter PIN" autofocus>
+        
+        <!-- Only Numeric Keypad Configuration -->
+        <input type="password" id="pinInput" inputmode="numeric" pattern="[0-9]*" placeholder="Enter PIN" autofocus>
+        
         <div class="login-error-msg" id="loginError">⚠️ Incorrect PIN! Try again.</div>
         <button onclick="checkPin()" style="width: 100%;">Login</button>
     </div>
@@ -243,6 +255,15 @@
 </div>
 
 <script>
+    // PWA Service Worker Registration
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./service-worker.js')
+                .then(reg => console.log('Service Worker registered successfully!'))
+                .catch(err => console.log('Service Worker registration failed: ', err));
+        });
+    }
+
     const firebaseConfig = {
         apiKey: "AIzaSyDlqbfEAxQrWQ8pjxJOlL7Q9SFumwKv6PE",
         authDomain: "somiti-app-247ce.firebaseapp.com",
@@ -291,6 +312,10 @@
             title: 'Verify Old PIN',
             input: 'password',
             inputLabel: 'Enter Current Security PIN',
+            inputAttributes: {
+                inputmode: 'numeric',
+                pattern: '[0-9]*'
+            },
             showCancelButton: true,
             confirmButtonText: 'Verify'
         }).then((oldResult) => {
@@ -306,6 +331,10 @@
                             title: 'Set New PIN',
                             input: 'password',
                             inputLabel: 'Enter New Security PIN',
+                            inputAttributes: {
+                                inputmode: 'numeric',
+                                pattern: '[0-9]*'
+                            },
                             showCancelButton: true,
                             confirmButtonText: 'Save New PIN'
                         }).then((newResult) => {
@@ -331,7 +360,6 @@
 
     document.getElementById('pinInput').addEventListener('keyup', function(e) { if (e.key === 'Enter') checkPin(); });
 
-    // 🔄 Realtime Firebase Data Sync System
     function loadMonthData() {
         const month = document.getElementById('monthSelect').value;
         document.getElementById('currentMonthLabel').innerText = month;
@@ -405,7 +433,6 @@
             let fineTotal = dueWeeksCount * (WEEKLY_RATE * FINE_RATE);
             let totalWithFine = savingsSum + (m.ef||0) + fineTotal;
 
-            // 🎯 Automated Draw Eligibility Rules
             let drawStatusHTML = '';
             if (m.isWinner) {
                 drawStatusHTML = '<span class="status-winner">🏆 Winner</span>';
@@ -448,7 +475,6 @@
         calculateOverallTotals();
     }
 
-    // 🎲 Automated Draw Function
     function runAutoDraw() {
         let eligibleMembers = members.filter(m => {
             let weeks = [m.w1||0, m.w2||0, m.w3||0, m.w4||0];
